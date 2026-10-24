@@ -1,0 +1,403 @@
+ernestdefoe-curio:
+  forum:
+    status:
+      owned: Possédé
+      wishlist: Liste de souhaits
+      trade: Échangeable
+    progress:
+      label: Avancement
+      none: Non renseigné
+      any: Tout avancement
+      pending: Pas commencé
+      in_progress: En cours
+      completed: Terminé
+    condition:
+      sealed: Scellé
+      mint: Neuf
+      very_good: Très bon
+      good: Bon
+      fair: Correct
+      poor: Abîmé
+    visibility:
+      public: Tout le monde
+      public_help: Toute personne qui peut voir les collections de ce forum.
+      members: Membres
+      members_help: Seulement les personnes connectées au forum.
+      private: Moi seul
+      private_help: Personne d'autre, pas même les autres membres.
+    count:
+      items: "{count, plural, one {# objet} other {# objets}}"
+      items_short: "{count, plural, one {{short} objet} other {{short} objets}}"
+      wanted: "{count, plural, one {# souhait} other {# souhaits}}"
+      trade: "{count} à échanger"
+      collections: "{count, plural, one {# collection} other {# collections}}"
+    filter:
+      all: Tous les objets
+      owned: Possédés
+      wishlist: Liste de souhaits
+      trade: Échangeables
+      any: "{field} : tout"
+    sort:
+      position: Ordre du propriétaire
+      recent: Ajouts récents
+      title: Titre
+      year: Plus récents d'abord
+      rating: Mieux notés
+    table:
+      title: Titre
+      status: Statut
+      rating: Note
+      progress: Avancement
+    page:
+      missing: Cette collection n'existe pas, ou vous ne pouvez pas la voir.
+      empty: Rien ici pour l'instant.
+      since: "Depuis {date}"
+      owned: Possédés
+      wanted: Souhaits
+      trade: À échanger
+      follow: Suivre
+      following: Suivie
+      followers: "{count, plural, one {# abonné} other {# abonnés}}"
+      add_item: Ajouter un objet
+      settings: Réglages
+      search: "Chercher parmi {count} objets…"
+      filter_label: Afficher
+      sort_label: Ordre
+      view_label: Affichage
+      view_grid: Grille
+      view_list: Liste
+      arrange: Réorganiser
+      arrange_done: Terminé
+      load_more: Afficher plus
+    edit:
+      title_new: Nouvelle collection
+      title_edit: Réglages de la collection
+      type: Que collectionnez-vous ?
+      type_pick: Choisissez un type
+      type_off_group: Désactivés — seuls les admins les voient
+      type_change_help: Les objets gardent leurs détails. La répartition et les filtres suivent les champs du nouveau type.
+      name: Nom
+      name_placeholder: L'étagère Nintendo
+      description: Description
+      visibility: Qui peut la voir
+      wishlist_public: Montrer ma liste de souhaits aux autres
+      featured: La mettre à la une sur la page Collections
+      create: Créer la collection
+      save: Enregistrer
+      delete: Supprimer la collection
+      delete_confirm: "Supprimer {name} et tout ce qu'elle contient ? C'est définitif."
+    item_edit:
+      title_new: "Ajouter à {name}"
+      title_edit: Modifier l'objet
+      tab_find: Rechercher
+      tab_details: Détails et photos
+      search_placeholder: Titre, ou scannez ou saisissez un code-barres ou un ISBN
+      barcode_placeholder: Scannez ou saisissez un code-barres ou un ISBN
+      scan: Scanner
+      scan_stop: Arrêter
+      camera_error: La caméra n'a pas pu démarrer. Vous pouvez saisir le code-barres à la place.
+      barcode_found: "Code-barres {code} reconnu."
+      barcode_miss: "Aucun produit trouvé pour {code}."
+      barcode_named: "Le code-barres {code} correspond à « {title} », mais la recherche ne l’a pas trouvé."
+      barcode_unavailable: "Les services de codes-barres n’ont pas pu être interrogés pour {code}. Réessayez plus tard, ou cherchez par titre."
+      barcode_teach: "Cherchez-le par titre ou ajoutez-le à la main : Curio garde le code-barres avec, et la prochaine personne qui le scannera le trouvera aussitôt."
+      barcode_kept: "Le code-barres {code} sera enregistré avec ce que vous choisirez : le prochain scan le trouvera."
+      by_title: Chercher par titre
+      no_results: Aucun résultat. Essayez avec moins de mots, ou ajoutez-le à la main.
+      no_cards_in: "Aucune carte trouvée en {language}. Essayez le nom anglais, l'extension et le numéro, ou une autre langue de carte."
+      more_results: Plus de résultats
+      card_hint: "Précisez l'extension et le numéro de la carte : Goomy 195, Goomy 195/264, Goomy fst 195, Lightning Bolt 2x2 117, un code d'impression comme LOB-FR001, ou une promo comme Nigirigon 201/SV-P. Choisissez la langue de la carte à côté de la recherche ; le nom anglais ou français d'un Pokémon trouve ses cartes dans toutes les langues (Nigirigon trouve シャリタツ)."
+      card_language: Langue de la carte
+      find_hint: Choisir un résultat remplit la jaquette et les détails, et son titre et sa description s'affichent dans toutes les langues du forum.
+      by_hand: L'ajouter à la main
+      lookup_failed: Ce titre n'a pas pu être récupéré pour l'instant. Réessayez, ou ajoutez-le à la main.
+      cover_looked_up: Jaquette trouvée
+      add_photos: Ajoutez vos photos
+      photos_hint: "Déposer, coller ou choisir · encore {count} au maximum"
+      remove_photo: Retirer la photo
+      title: Titre
+      translated_hint: "Chaque lecteur le voit dans sa langue ({count} disponibles)."
+      subtitle: Studio, artiste ou auteur
+      year: Année
+      status: Statut
+      condition: État
+      condition_none: Non précisé
+      acquired: Acquis le
+      notes: Notes
+      notes_placeholder: Où vous l'avez trouvé, ce qu'il y a dans la boîte…
+      price: Prix payé
+      price_private: Visible par vous seul
+      favourite: Favori
+      choose: Choisir…
+      other_choice: Autre…
+      add: Ajouter à la collection
+      save: Enregistrer
+      delete: Supprimer l'objet
+      delete_confirm: "Supprimer {title} ? C'est définitif."
+      rating: Votre note
+      rating_value: "{stars} sur 5"
+      rating_none: Pas noté. Touchez une étoile ; touchez-la à nouveau pour effacer.
+    item:
+      missing: Cet objet n'existe pas, ou vous ne pouvez pas le voir.
+      favourite: Favori
+      photo_n: "Photo {n}"
+      "yes": Oui
+      "no": Non
+      condition: État
+      acquired: Acquis le
+      price: Prix payé
+      about: À propos
+      more: Lire la suite
+      less: Réduire
+      from_wikipedia: Description issue de Wikipédia
+      from_wikidata: Description issue de Wikidata
+      translated_deepl: Traduit par DeepL
+      no_description: Aucune description disponible.
+      show_other: "Afficher la description en {language}"
+      hide_other: "Masquer la description en {language}"
+      languages: "{count, plural, one {# langue} other {# langues}}"
+      offers: "{count, plural, one {# membre le propose à l’échange} other {# membres le proposent à l’échange}}"
+      edit: Modifier
+      have_too: Je l'ai aussi
+      want_it: Ajouter à ma liste de souhaits
+      choose_collection: Dans quelle collection ?
+      choose_none: "Vous n'avez pas encore de collection. Créez-en une et l'objet y sera ajouté directement."
+      choose_new: Nouvelle collection…
+      show_off: Le montrer
+      discussed: Discussion
+      cancel: Annuler
+      developer: Développeur
+      publisher: Éditeur
+      released: Sortie
+      genres: Genres
+      platforms: Plateformes
+    profile:
+      nav: Collections
+      items: Objets
+      collections: Collections
+      wanted: Souhaits
+      trade: À échanger
+      since: Collectionne depuis
+      collections_heading: Collections
+      new: Nouvelle collection
+      empty: Aucune collection pour l'instant.
+      empty_own: Commencez votre première collection et montrez ce que vous avez.
+      wishlist_heading: Liste de souhaits
+    browse:
+      title: Collections
+      lead: "{items, plural, one {# objet} other {# objets}} dans les collections de {members, plural, one {# membre} other {# membres}}."
+      search: Chercher dans toutes les collections…
+      results: "Objets correspondant à « {q} »"
+      no_results: Rien ne correspond.
+      recent: Ajouts récents
+      featured: Collections à la une
+      largest: Les plus grandes collections
+      none: Aucune collection ici pour l'instant.
+      add: Ajouter un objet
+      types: Types de collection
+      tab_owned: Possédés
+      tab_wishlist: Liste de souhaits
+      tab_trade: Échangeables
+      none_owned: Rien d'ajouté pour l'instant.
+      none_wishlist: Aucun souhait à afficher pour l'instant.
+      none_trade: Rien d'échangeable pour l'instant.
+      latest: Derniers changements
+      tab_progress: Statut
+      tab_ratings: Notes
+      none_progress: Aucun avancement indiqué pour l'instant.
+      none_ratings: Rien n'a encore été noté.
+      change_progress: "{name} a marqué {title} comme"
+      change_rating: "{name} a noté {title}"
+      more: Plus
+    nav:
+      mine: Mes collections
+    genre:
+      point_and_click: "Pointer-et-cliquer"
+      fighting: "Combat"
+      shooter: "Tir"
+      music: "Musique"
+      platform: "Plates-formes"
+      puzzle: "Réflexion"
+      racing: "Course"
+      real_time_strategy_rts: "Stratégie en temps réel"
+      role_playing_rpg: "Jeu de rôle (RPG)"
+      simulator: "Simulation"
+      sport: "Sport"
+      strategy: "Stratégie"
+      turn_based_strategy_tbs: "Stratégie au tour par tour"
+      tactical: "Tactique"
+      hack_and_slash_beat_em_up: "Hack'n'slash / Beat'em all"
+      quiz_trivia: "Quiz"
+      pinball: "Flipper"
+      adventure: "Aventure"
+      indie: "Indépendant"
+      arcade: "Arcade"
+      visual_novel: "Visual novel"
+      card_board_game: "Jeu de cartes et de plateau"
+      moba: "MOBA"
+    showoff:
+      title: "Mon {title}"
+      composer: "Vous montrez {title}"
+      remove: Ne pas lier cet objet
+    marquee:
+      add: Ajouter à une collection
+    hero:
+      here: Sur ce forum
+      members: "{count, plural, one {# membre l’a} other {# membres l’ont}}"
+      from: "Tiré de {name}"
+      view_in: "Voir dans la collection de {name}"
+      in_my_collection: Voir dans ma collection
+      open_item: Ouvrir l’objet
+    transfer:
+      heading: Importer et exporter
+      help: "Importez un tableur : un export Curio, un export de collection Discogs, ou un export de bibliothèque Goodreads ou StoryGraph. Les notes suivent aussi. Les jaquettes et descriptions sont trouvées en arrière-plan dans les minutes qui suivent."
+      import: Importer un fichier CSV
+      export: Télécharger en CSV
+      done: "{count, plural, one {# objet importé} other {# objets importés}} depuis le fichier {format} ({skipped} ignorés)."
+      format_curio: Curio
+      format_discogs: Discogs
+      format_goodreads: Goodreads
+      format_storygraph: StoryGraph
+    notifications:
+      match: "{username} propose {title} à l’échange. Il est dans votre liste de souhaits."
+      match_setting: Quelqu’un propose à l’échange un objet de ma liste de souhaits
+      new_items: "{username} a ajouté des objets à {name}"
+      new_items_setting: Une collection que je suis a des nouveautés
+    widget:
+      label: Ajouts récents aux collections
+      field_title: Titre
+      field_limit: Combien
+      empty: Rien d'ajouté pour l'instant.
+  admin:
+    settings:
+      upc_label: Clé UPCitemdb (facultatif)
+      upc_help: "Le scan de codes-barres fonctionne sans aucune clé. Les livres sont cherchés sur Open Library et les disques sur Deezer et MusicBrainz. Les jeux, films et autres produits sont demandés à UPCitemdb (sans clé, 100 par jour, surtout les produits nord-américains) et à Open Icecat (sans clé, surtout les produits européens : jeux, consoles, électronique, jouets). Chaque code-barres trouvé par le forum, ou associé à la main par un membre, est gardé : il n’est jamais demandé deux fois. Une clé UPCitemdb payante ne fait que relever la limite quotidienne d’UPCitemdb ; la plupart des forums n’en ont jamais besoin."
+      upc_link: Offres UPCitemdb
+      deepl_label: Clé DeepL (facultatif)
+      deepl_help: Quand Wikipédia n'a pas de description dans une langue, DeepL traduit celle en anglais. Les clés gratuites finissent par « :fx ».
+      deepl_link: Obtenir une clé
+      max_upload_label: Photo la plus lourde (Ko)
+      max_upload_help: Les photos sont réencodées en WebP et redimensionnées, ce qui est stocké est donc bien plus léger.
+      layout_label: Présentation de la page Collections
+      layout_help: Comment la page Collections montre chaque type.
+      layout_tags: Comme la page des étiquettes (par défaut de Flarum)
+      layout_covers: Tuiles de couvertures
+      layout_compact: Onglets compacts (une rangée de petits boutons)
+      type_color_label: Couleur des onglets compacts
+      type_color_help: Avec les onglets compacts, la couleur de chaque type peut remplir son onglet ou seulement colorer son icône et son nom.
+      type_color_background: En fond de l'onglet
+      type_color_text: Sur l'icône et le nom seulement
+      latest_label: Afficher « Derniers changements »
+      latest_help: Une rangée sur la page Collections avec les derniers avancements indiqués par les membres (terminé, en cours…) et les dernières notes en étoiles qu’ils ont données, dans les collections que le lecteur peut voir.
+      hide_empty_label: Masquer les types sans rien dedans
+      hide_empty_help: Désactivé par défaut, la page Collections montre donc chaque type activé, comme la page des étiquettes montre chaque étiquette ; un type vide invite à lancer une première collection. Une fois activé, seuls les types qui contiennent quelque chose sont montrés (tous, tant que le forum n'a encore rien).
+      cover_fit_label: Jaquettes qui ne remplissent pas le cadre
+      cover_fit_help: "Chaque type a une forme de jaquette, pour que la grille d'une collection reste nette. Une jaquette d'une autre forme (une boîte de jeu 3:4 dans un cadre 2:3) peut être montrée entière sur une copie floutée d'elle-même, entière sur un fond uni, ou recadrée pour remplir le cadre. Un type dont la forme correspond à ses jaquettes (Portrait 3:4 pour les boîtes de jeu) n'en a pas besoin."
+      cover_fit_blur: Entière sur un fond flouté
+      cover_fit_plain: Entière sur un fond uni
+      cover_fit_crop: Recadrée pour remplir le cadre
+      shortcut_label: Raccourci « Mes collections »
+      shortcut_help: Où les membres trouvent un lien vers leurs propres collections.
+      shortcut_both: Barre latérale et menu du compte
+      shortcut_sidebar: Barre latérale seulement
+      shortcut_menu: Menu du compte seulement
+      shortcut_none: Nulle part (Profil → Collections reste disponible)
+      widget_label: Proposer le widget « Ajouts récents »
+      widget_help: Désactivé par défaut. Une fois activé, le widget peut être placé avec Bespoke ou FoF Forum Widgets (il apparaît d'abord dans la colonne de droite de FoF ; déplacez-le ou retirez-le dans l'éditeur de FoF).
+      widget_title: Ajouts récents aux collections
+      igdb_id_label: Client ID IGDB (facultatif)
+      igdb_secret_label: Client secret IGDB
+      igdb_help: "Avec une application de développeur Twitch gratuite, la recherche de jeux passe par IGDB : jaquette, développeur, éditeur, date de sortie, plateformes et genres. Enregistrez une application (nom libre ; URL de redirection OAuth http://localhost ; catégorie Application Integration), puis copiez son Client ID et créez un nouveau secret. Sans cela, les jeux sont recherchés via Marquee s'il est installé."
+      igdb_link: Créer une application Twitch
+      igdb_docs: (instructions d'IGDB)
+    types:
+      heading: Types de collection
+      help: Les membres choisissent un type pour chaque collection. Le type fixe la forme des jaquettes, les détails demandés et la source des recherches. Glissez pour changer l'ordre.
+      drag: Glisser pour réordonner
+      add: Ajouter un type
+      labels_in: Libellés en
+      name: Nom
+      icon: Icône
+      color: Couleur
+      color_help: "Un code hexadécimal comme #5b3fd1. Laissez vide pour utiliser la couleur du forum."
+      shape: Forme des jaquettes
+      source: Recherches
+      needs_marquee: La recherche de films et séries vient de Marquee, celle de jeux d'IGDB (à configurer dans les réglages ci-dessus) ou de Marquee. Tant qu'il n'est pas installé, les membres peuvent scanner des codes-barres ou ajouter des objets à la main.
+      cards_help: "Gratuit, sans clé : Pokémon via TCGdex (dans la langue du lecteur quand il l'a), Magic via Scryfall, Yu-Gi-Oh! via YGOPRODeck. L'extension, le numéro, la rareté et la langue remplissent les détails de ces noms (set, number, rarity, language) quand le type les a."
+      fields: Détails
+      fields_help: Ce que les membres remplissent pour chaque objet. Le premier champ à choix sert à la répartition et au filtre des pages de collection (plateforme, format…).
+      field_label: "Libellé ({language})"
+      field_kind: Type
+      field_choices: Choix
+      add_choice: Ajouter un choix…
+      remove_choice: Retirer le choix
+      remove_field: Retirer le détail
+      add_field: Ajouter un détail
+      translation_note: Les titres et descriptions trouvés arrivent seuls dans chaque langue installée (Wikidata et Wikipédia). Seuls les libellés que vous écrivez ici sont à traduire.
+      save: Enregistrer le type
+      create: Créer le type
+      delete: Supprimer le type
+      duplicate: Dupliquer
+      delete_confirm: "Supprimer le type {name} ?"
+      in_use: Un type qui a des collections ne peut pas être supprimé.
+      save_failed: Le type n'a pas pu être enregistré.
+      enabled: Activé
+      enabled_help: "Désactivé, les membres ne voient pas ce type et ne peuvent pas créer de collection avec. Les collections déjà créées restent, visibles seulement par leurs propriétaires et les modérateurs. Les administrateurs peuvent toujours l'essayer."
+      "on": Activé
+      "off": Désactivé
+      progress: Suivre l'avancement
+      progress_help: "Chaque objet peut être marqué Pas commencé, En cours ou Terminé : un badge sur l'objet et un filtre sur la page de la collection. Pratique pour une pile de jeux, livres ou films à faire."
+      export: Exporter
+      export_all: Tout exporter
+      import: Importer
+      import_help: "Les types voyagent en fichiers JSON, avec leurs détails et leurs libellés dans chaque langue. L'import les ajoute comme nouveaux types."
+      import_done: "{count, plural, one {# type importé} other {# types importés}}"
+      import_failed: "Ce fichier n'est pas un export de types Curio."
+    shape:
+      portrait: Portrait 2:3 (livres, films)
+      box: Portrait 3:4 (boîtes de jeu)
+      square: Carré (albums)
+      landscape: Paysage 4:3
+    source:
+      none: Aucune (codes-barres et à la main)
+      books: Livres (Open Library)
+      music: Albums (Deezer, MusicBrainz)
+      movies: Films (via Marquee)
+      tv: Séries (via Marquee)
+      games: Jeux (IGDB, ou via Marquee)
+      pokemon: Cartes Pokémon (TCGdex)
+      magic: Cartes Magic (Scryfall)
+      yugioh: Cartes Yu-Gi-Oh! (YGOPRODeck)
+      cards: Les trois jeux de cartes (Pokémon, Magic, Yu-Gi-Oh!)
+    kind:
+      select: Choix
+      text: Texte
+      number: Nombre
+      date: Date
+      bool: Oui / non
+    permissions:
+      view: Voir les collections
+      create: Créer des collections, ajouter des objets et des photos
+      import: Importer des tableurs dans leurs collections
+      export: Exporter leurs collections en tableur
+      moderate: Retirer les collections des autres et les mettre à la une
+  email:
+    match:
+      subject: "{title} est proposé à l’échange"
+      body: "Bonjour {recipient_display_name}, {owner} propose {title} à l’échange. Il est dans votre liste de souhaits."
+      link: Voir l’offre
+    new_items:
+      subject: "Du nouveau dans {name}"
+      body: "Bonjour {recipient_display_name}, {owner} a ajouté des objets à {name}, une collection que vous suivez."
+      link: Voir la collection
+  api:
+    type_in_use: Ce type a des collections, il ne peut donc pas être supprimé.
+    type_disabled: Ce type de collection est désactivé.
+    too_many_collections: "Vous pouvez avoir jusqu'à {count} collections."
+    collection_full: "Une collection contient jusqu'à {count} objets."
+    too_many_photos: "Un objet peut avoir jusqu'à {count} photos."
+    not_your_item: Seuls vos propres objets, possédés ou échangeables, peuvent être montrés.
+    import_missing: Choisissez un fichier CSV à importer.
+    import_too_big: "Le fichier est trop lourd (maximum {size})."
+    import_too_often: Vous avez importé plusieurs fichiers cette dernière heure. Réessayez plus tard.
+    import_unknown_format: Curio ne sait pas lire ce fichier. Exportez-le depuis Curio, Discogs, Goodreads ou StoryGraph.
