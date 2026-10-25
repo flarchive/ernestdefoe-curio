@@ -2,24 +2,13 @@
 
 > **Read-only archive of released versions of ernestdefoe/curio.** Not for installation: use [Packagist](https://packagist.org/packages/ernestdefoe/curio) or the [upstream repository](https://github.com/ernestdefoe/curio).
 
-**21** versions archived · Latest: [`v1.14.3`](https://github.com/flarchive/ernestdefoe-curio/tree/archive/v1.14.3) · License: `MIT` · Flarum: `^2.0`
+**0** versions archived · Latest: [`v1.15.0`](https://github.com/flarchive/ernestdefoe-curio/tree/archive/v1.15.0) · License: `MIT` · Flarum: `^2.0`
 
 ## Archived Versions
 
 | Version | Released | Flarum | Source |
 |---|---|---|---|
-| `v1.0.0` | 2026-10-17 | `^2.0` | [Browse](https://github.com/flarchive/ernestdefoe-curio/tree/archive/v1.0.0) |
-| `v1.1.0` | 2026-10-19 | `^2.0` | [Browse](https://github.com/flarchive/ernestdefoe-curio/tree/archive/v1.1.0) |
-| `v1.1.1` | 2026-10-19 | `^2.0` | [Browse](https://github.com/flarchive/ernestdefoe-curio/tree/archive/v1.1.1) |
-| `v1.1.2` | 2026-10-19 | `^2.0` | [Browse](https://github.com/flarchive/ernestdefoe-curio/tree/archive/v1.1.2) |
-| `v1.10.0` | 2026-10-22 | `^2.0` | [Browse](https://github.com/flarchive/ernestdefoe-curio/tree/archive/v1.10.0) |
-| `v1.11.0` | 2026-10-24 | `^2.0` | [Browse](https://github.com/flarchive/ernestdefoe-curio/tree/archive/v1.11.0) |
-| `v1.12.0` | 2026-10-24 | `^2.0` | [Browse](https://github.com/flarchive/ernestdefoe-curio/tree/archive/v1.12.0) |
-| `v1.13.0` | 2026-10-24 | `^2.0` | [Browse](https://github.com/flarchive/ernestdefoe-curio/tree/archive/v1.13.0) |
-| `v1.14.0` | 2026-10-24 | `^2.0` | [Browse](https://github.com/flarchive/ernestdefoe-curio/tree/archive/v1.14.0) |
-| `v1.14.1` | 2026-10-25 | `^2.0` | [Browse](https://github.com/flarchive/ernestdefoe-curio/tree/archive/v1.14.1) |
-
-[View all 21 versions](https://github.com/flarchive/ernestdefoe-curio/tags)
+| — | — | — | — |
 
 Catalog entry: [packages/ernestdefoe-curio.json](https://github.com/flarchive/archive-index/blob/main/packages/ernestdefoe-curio.json)
 
