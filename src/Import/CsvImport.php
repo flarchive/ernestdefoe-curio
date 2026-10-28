@@ -1,0 +1,273 @@
+<?php
+
+namespace Ernestdefoe\Curio\Import;
+
+use Carbon\Carbon;
+use Ernestdefoe\Curio\Api\ItemResource;
+use Ernestdefoe\Curio\Item;
+use Ernestdefoe\Curio\Lookup\Barcode;
+use Ernestdefoe\Curio\Lookup\BarcodeLookup;
+use Ernestdefoe\Curio\Type;
+use Throwable;
+
+/**
+ * Reads a spreadsheet of things into rows Curio can store: its own export,
+ * a Discogs collection export, or a Goodreads / StoryGraph library export,
+ * told apart by their headers. Ratings come across from all four (stars out
+ * of five, rounded to the nearest half). Covers and texts are found later, in the
+ * background (curio:match-works), so a big file imports at once.
+ */
+class CsvImport
+{
+    public const MAX_BYTES = 2 * 1024 * 1024;
+
+    private const PROGRESS_WORDS = [
+        'pending' => 'pending', 'not started' => 'pending', 'pas commencé' => 'pending', 'to-read' => 'pending',
+        'in_progress' => 'in_progress', 'in progress' => 'in_progress', 'en cours' => 'in_progress', 'currently-reading' => 'in_progress',
+        'completed' => 'completed', 'terminé' => 'completed', 'read' => 'completed',
+        'abandoned' => 'abandoned', 'abandonné' => 'abandoned', 'dropped' => 'abandoned', 'did-not-finish' => 'abandoned', 'did not finish' => 'abandoned',
+    ];
+
+    /** Card conditions by their usual codes and names (TCGplayer's, and French ones). */
+    private const CARD_CONDITION_WORDS = [
+        'm' => 'mint', 'mint' => 'mint', 'neuf' => 'mint', 'nm' => 'near_mint', 'near mint' => 'near_mint', 'quasi neuf' => 'near_mint',
+        'lp' => 'light_played', 'light played' => 'light_played', 'lightly played' => 'light_played', 'légèrement joué' => 'light_played',
+        'mp' => 'moderately_played', 'moderately played' => 'moderately_played', 'moyennement joué' => 'moderately_played',
+        'hp' => 'heavily_played', 'heavily played' => 'heavily_played', 'très joué' => 'heavily_played',
+        'dmg' => 'damaged', 'damaged' => 'damaged', 'abîmé' => 'damaged', 'endommagé' => 'damaged',
+    ];
+
+    private const DISCOGS_CONDITIONS = [
+        'mint (m)' => 'mint', 'near mint (nm or m-)' => 'mint', 'very good plus (vg+)' => 'very_good',
+        'very good (vg)' => 'very_good', 'good plus (g+)' => 'good', 'good (g)' => 'good', 'fair (f)' => 'fair', 'poor (p)' => 'poor',
+    ];
+
+    /**
+     * @return array{format: string, rows: list<array<string, mixed>>, skipped: int}
+     */
+    public function read(string $path, Type $type, int $limit): array
+    {
+        $handle = fopen($path, 'r');
+
+        if ($handle === false) {
+            return ['format' => 'unknown', 'rows' => [], 'skipped' => 0];
+        }
+
+        $header = fgetcsv($handle, 0, ',', '"', '');
+        $header = is_array($header) ? array_map(fn ($h) => mb_strtolower(trim(preg_replace('/^\xEF\xBB\xBF/', '', (string) $h) ?? '')), $header) : [];
+        $format = $this->format($header);
+
+        $rows = [];
+        $skipped = 0;
+
+        while (($cells = fgetcsv($handle, 0, ',', '"', '')) !== false) {
+            if (count($rows) >= $limit) {
+                $skipped++;
+                continue;
+            }
+
+            $raw = [];
+            foreach ($header as $i => $name) {
+                $raw[$name] = trim((string) ($cells[$i] ?? ''));
+            }
+
+            $row = $format === 'unknown' ? null : $this->{$format}($raw, $type);
+
+            if ($row === null || $row['title'] === '') {
+                $skipped++;
+                continue;
+            }
+
+            $rows[] = $row;
+        }
+
+        fclose($handle);
+
+        return ['format' => $format, 'rows' => $rows, 'skipped' => $skipped];
+    }
+
+    /** @param list<string> $header */
+    private function format(array $header): string
+    {
+        return match (true) {
+            in_array('release_id', $header, true) && in_array('artist', $header, true) => 'discogs',
+            in_array('exclusive shelf', $header, true) => 'goodreads',
+            in_array('read status', $header, true) && in_array('authors', $header, true) => 'storygraph',
+            in_array('title', $header, true) => 'curio',
+            default => 'unknown',
+        };
+    }
+
+    /** Curio's own columns, plus one per detail (by key or by label, in any language). */
+    private function curio(array $raw, Type $type): array
+    {
+        $fields = [];
+
+        foreach ($type->fieldList() as $field) {
+            $names = array_unique([$field['key'], ...array_map('mb_strtolower', array_values($field['labels']))]);
+            foreach ($names as $name) {
+                if (($raw[$name] ?? '') !== '') {
+                    $fields[$field['key']] = $this->value($field, $raw[$name]);
+                    break;
+                }
+            }
+        }
+
+        return $this->row($type, [
+            'title' => $raw['title'] ?? '',
+            'subtitle' => $raw['subtitle'] ?? null,
+            'year' => $raw['year'] ?? null,
+            'status' => $raw['status'] ?? null,
+            'condition' => $raw['condition'] ?? null,
+            'acquired_on' => $raw['acquired_on'] ?? null,
+            'notes' => $raw['notes'] ?? null,
+            'barcode' => $raw['barcode'] ?? null,
+            'price_paid' => $raw['price_paid'] ?? null,
+            'price_currency' => $raw['price_currency'] ?? null,
+            'favourite' => in_array(mb_strtolower($raw['favourite'] ?? ''), ['1', 'yes', 'true', 'oui'], true),
+            'rating' => $raw['rating'] ?? null,
+            // Curio's own export writes 0 for a rating of no stars; elsewhere 0 means unrated.
+            'rating_zero' => true,
+            'progress' => $raw['progress'] ?? null,
+            'graded' => in_array(mb_strtolower($raw['graded'] ?? ''), ['1', 'yes', 'true', 'oui'], true),
+        ], $fields);
+    }
+
+    private function discogs(array $raw, Type $type): array
+    {
+        $fields = BarcodeLookup::fieldsFrom($type, $raw['format'] ?? '');
+
+        foreach (['label' => 'label', 'catalogue' => 'catalog#'] as $key => $column) {
+            if (($raw[$column] ?? '') !== '' && in_array($key, array_column($type->fieldList(), 'key'), true)) {
+                $fields[$key] = $raw[$column];
+            }
+        }
+
+        return $this->row($type, [
+            'title' => $raw['title'] ?? '',
+            // Discogs tells same-named artists apart with " (2)".
+            'subtitle' => preg_replace('/\s\(\d+\)$/', '', $raw['artist'] ?? ''),
+            'year' => $raw['released'] ?? null,
+            'condition' => self::DISCOGS_CONDITIONS[mb_strtolower($raw['collection media condition'] ?? '')] ?? null,
+            'acquired_on' => $raw['date added'] ?? null,
+            'notes' => $raw['collection notes'] ?? null,
+            'rating' => $raw['rating'] ?? null,
+        ], $fields);
+    }
+
+    private function goodreads(array $raw, Type $type): array
+    {
+        return $this->row($type, [
+            'title' => $raw['title'] ?? '',
+            'subtitle' => $raw['author'] ?? null,
+            'year' => ($raw['original publication year'] ?? '') ?: ($raw['year published'] ?? null),
+            'status' => ($raw['exclusive shelf'] ?? '') === 'to-read' ? 'wishlist' : 'owned',
+            'acquired_on' => $raw['date added'] ?? null,
+            // Goodreads writes ISBNs as ="978…" so spreadsheets keep the digits.
+            'barcode' => preg_replace('/\D/', '', ($raw['isbn13'] ?? '') ?: ($raw['isbn'] ?? '')),
+            // 0 means not rated.
+            'rating' => $raw['my rating'] ?? null,
+            'progress' => $raw['exclusive shelf'] ?? null,
+        ], []);
+    }
+
+    private function storygraph(array $raw, Type $type): array
+    {
+        return $this->row($type, [
+            'title' => $raw['title'] ?? '',
+            'subtitle' => $raw['authors'] ?? null,
+            'status' => ($raw['read status'] ?? '') === 'to-read' ? 'wishlist' : 'owned',
+            'acquired_on' => $raw['date added'] ?? null,
+            'barcode' => preg_replace('/[^\dX]/i', '', $raw['isbn/uid'] ?? ''),
+            // Quarter stars ("3.75"), rounded to halves.
+            'rating' => $raw['star rating'] ?? null,
+            'progress' => $raw['read status'] ?? null,
+        ], []);
+    }
+
+    /** Stars out of five ("4", "4.5", "3,75") as half stars 1–10 (0 with `$zero`); blank or nonsense is unrated. */
+    public static function rating(mixed $stars, bool $zero = false): ?int
+    {
+        $stars = str_replace(',', '.', trim((string) $stars));
+
+        if (! is_numeric($stars)) {
+            return null;
+        }
+
+        $halves = (int) round((float) $stars * 2);
+
+        return $halves >= ($zero ? 0 : 1) && $halves <= 10 ? $halves : null;
+    }
+
+    /** Progress from its key, its English or French label, or a reading app's shelf name. */
+    public static function progress(mixed $text): ?string
+    {
+        return self::PROGRESS_WORDS[mb_strtolower(trim((string) $text))] ?? null;
+    }
+
+    /** A condition on the type's own scale, by key, or for cards by code or name ("NM", "Near Mint"). */
+    public static function condition(Type $type, mixed $text): ?string
+    {
+        $text = mb_strtolower(trim((string) $text));
+        $condition = $type->conditions === 'cards' ? (self::CARD_CONDITION_WORDS[$text] ?? $text) : $text;
+
+        return in_array($condition, $type->conditionList(), true) ? $condition : null;
+    }
+
+    /** A select field's value from its key or any of its labels. */
+    private function value(array $field, string $text): mixed
+    {
+        if ($field['kind'] !== 'select') {
+            return $field['kind'] === 'bool' ? in_array(mb_strtolower($text), ['1', 'yes', 'true', 'oui'], true) : $text;
+        }
+
+        foreach ($field['options'] ?? [] as $option) {
+            if ($option['key'] === $text || in_array(mb_strtolower($text), array_map('mb_strtolower', $option['labels']), true)) {
+                return $option['key'];
+            }
+        }
+
+        // A card printing as exported ("holo.cosmos.trick-or-trade").
+        return Type::allows($field, $text) ? $text : null;
+    }
+
+    /**
+     * Cleaned to what an item accepts; anything doubtful is left out rather than guessed.
+     *
+     * @param array<string, mixed> $v
+     * @param array<string, mixed> $fields
+     * @return array<string, mixed>
+     */
+    private function row(Type $type, array $v, array $fields): array
+    {
+        $year = preg_match('/(\d{4})/', (string) ($v['year'] ?? ''), $m) ? (int) $m[1] : null;
+        $price = str_replace(',', '.', (string) ($v['price_paid'] ?? ''));
+
+        try {
+            $acquired = ($v['acquired_on'] ?? '') !== '' ? Carbon::parse(str_replace('/', '-', (string) $v['acquired_on'])) : null;
+        } catch (Throwable) {
+            $acquired = null;
+        }
+
+        $status = in_array($v['status'] ?? null, Item::STATUSES, true) ? $v['status'] : 'owned';
+        $condition = self::condition($type, $v['condition'] ?? null);
+
+        return [
+            'title' => mb_substr(trim((string) $v['title']), 0, 255),
+            'subtitle' => ($s = mb_substr(trim((string) ($v['subtitle'] ?? '')), 0, 255)) !== '' ? $s : null,
+            'year' => $year && $year < 3000 ? $year : null,
+            'status' => $status,
+            'condition' => $status === 'wishlist' ? null : $condition,
+            'acquired_on' => $acquired && $acquired->isPast() && $status !== 'wishlist' ? $acquired->toDateString() : null,
+            'notes' => ($n = mb_substr(trim((string) ($v['notes'] ?? '')), 0, 2000)) !== '' ? $n : null,
+            'barcode' => ($v['barcode'] ?? '') !== '' ? Barcode::normalise((string) $v['barcode']) : null,
+            'price_paid' => is_numeric($price) && (float) $price >= 0 && (float) $price < 1e8 && $status !== 'wishlist' ? round((float) $price, 2) : null,
+            'price_currency' => is_numeric($price) && preg_match('/^[A-Z]{3}$/', (string) ($v['price_currency'] ?? '')) ? $v['price_currency'] : null,
+            'favourite' => (bool) ($v['favourite'] ?? false),
+            'rating' => self::rating($v['rating'] ?? null, ! empty($v['rating_zero'])),
+            'progress' => $type->progress && $status !== 'wishlist' ? self::progress($v['progress'] ?? null) : null,
+            'graded' => $type->grading && ! empty($v['graded']),
+            'fields' => ItemResource::cleanFields($type, array_filter($fields, fn ($x) => $x !== null && $x !== '')),
+        ];
+    }
+}
