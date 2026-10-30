@@ -1,0 +1,1056 @@
+import app from 'flarum/forum/app';
+import FormModal from 'flarum/common/components/FormModal';
+import Button from 'flarum/common/components/Button';
+import Tooltip from 'flarum/common/components/Tooltip';
+import Icon from 'flarum/common/components/Icon';
+import Select from 'flarum/common/components/Select';
+import Switch from 'flarum/common/components/Switch';
+import LoadingIndicator from 'flarum/common/components/LoadingIndicator';
+import Stream from 'flarum/common/utils/Stream';
+import extractText from 'flarum/common/utils/extractText';
+import { t, text, label, locale, STATUSES, PROGRESS, lookup, closeThen, barcodesOn } from '../util';
+import { conditionsFor, conditionText } from './bits';
+import { pick, onlyOption, optionLabel } from '../../common/labels';
+import username from 'flarum/common/helpers/username';
+import Stars from './Stars';
+import { canScan, scan } from '../scanner';
+import useStyles from '../styles';
+
+const MAX_PHOTOS = 6;
+const CARD_SOURCES = ['pokemon', 'magic', 'yugioh', 'cards'];
+/** Words in a card search that name a printing, and the part of its key each means. */
+const PRINTING_HINTS = [
+  [/trick[\s-]*or[\s-]*trade/i, 'trick-or-trade'],
+  [/cosmos/i, 'cosmos'],
+  [/reverse/i, 'reverse'],
+  [/(?<!reverse\s)holo/i, 'holo'],
+  [/(1st|first)\s+edition/i, '1st-edition'],
+];
+/** Details that describe one member's own copy: never copied from someone else's. */
+const OWN_DETAILS = ['grade', 'cib'];
+/** The languages each card source has printings in (TCGdex's codes; the server maps them to Scryfall's). */
+const POKEMON_LANGUAGES = ['en', 'fr', 'es', 'es-mx', 'it', 'pt', 'pt-br', 'pt-pt', 'de', 'nl', 'pl', 'ru', 'ja', 'ko', 'zh-tw', 'zh-cn', 'id', 'th'];
+const CARD_LANGUAGES = {
+  pokemon: POKEMON_LANGUAGES,
+  cards: POKEMON_LANGUAGES,
+  magic: ['en', 'es', 'fr', 'de', 'it', 'pt', 'ja', 'ko', 'ru', 'zh-cn', 'zh-tw'],
+};
+const LANGUAGE_KEY = 'curio.cardLanguage';
+/** What a barcode answer calls the thing: the product's cleaned name, else the title it was matched to (books, records). */
+const barcodeName = (b) => (b && (b.title || (b.results[0] && b.results[0].title))) || null;
+const CURRENCIES = ['USD', 'EUR', 'GBP', 'CAD', 'AUD', 'NZD', 'JPY', 'CHF', 'SEK', 'NOK', 'DKK', 'PLN', 'BRL', 'MXN', 'INR'];
+
+/** "fr" → "Français", in the reader's language ("français" mid-sentence). */
+const languageName = (code, capital = true) => {
+  try {
+    const name = new Intl.DisplayNames([locale()], { type: 'language' }).of({ zhs: 'zh-Hans', zht: 'zh-Hant' }[code] || code);
+    return name ? (capital ? name.charAt(0).toLocaleUpperCase(locale()) : name.charAt(0)) + name.slice(1) : code;
+  } catch (e) {
+    return code;
+  }
+};
+
+const defaultCurrency = () => {
+  const l = locale();
+  if (l === 'en-GB') return 'GBP';
+  return ['fr', 'de', 'es', 'it', 'nl', 'pt', 'fi', 'el'].includes(l.split(/[-_]/)[0]) ? 'EUR' : 'USD';
+};
+
+/** The card language last picked here, else the reader's own (or English) if this source has it. */
+const cardLanguage = (list) => {
+  let saved = null;
+  try {
+    saved = localStorage.getItem(LANGUAGE_KEY);
+  } catch (e) {
+    // Storage blocked: the reader's language it is.
+  }
+  const own = locale().toLowerCase().replace('_', '-');
+  return [saved, own, own.split('-')[0]].find((code) => list.includes(code)) || 'en';
+};
+
+/**
+ * Add an item (look it up or scan it, then details and photos) or change one.
+ * `prefill` starts from another member's item: "I have this too".
+ */
+export default class ItemEditModal extends FormModal {
+  oninit(vnode) {
+    super.oninit(vnode);
+    useStyles();
+    const item = this.attrs.item;
+    const from = this.attrs.prefill;
+
+    this.collection = this.attrs.collection;
+    this.type = this.collection.type();
+    // A new item starts at the look-up: even a type with no title search takes a barcode (unless barcodes are off).
+    this.barcodes = barcodesOn();
+    this.findable = this.type.searchable() || this.barcodes;
+    this.step = item || from || this.attrs.work || !this.findable ? 'details' : 'find';
+
+    this.query = Stream('');
+    this.results = null;
+    this.barcode = null;
+    this.searching = false;
+    this.resolving = false;
+    this.scanning = null;
+    this.work = item ? item.work() : from ? from.work() : this.attrs.work || null;
+
+    const src = item || from;
+    // A copy fills what the other member left empty from the looked-up title.
+    const work = !item && this.work;
+    this.itemTitle = Stream(src ? src.title() : work ? work.originalTitle() : '');
+    this.subtitle = Stream((src && src.subtitle()) || (work && work.creator()) || '');
+    this.year = Stream(src && src.year() ? String(src.year()) : work && work.year() ? String(work.year()) : '');
+    this.status = Stream(item ? item.status() : this.attrs.status || 'owned');
+    this.condition = Stream(item ? item.condition() || '' : '');
+    this.acquiredOn = Stream(item ? item.acquiredOn() || '' : '');
+    this.fields = item ? Object.assign({}, item.fields() || {}) : from ? this.copiedFields(from) : {};
+    this.notes = Stream(item ? item.notes() || '' : '');
+    this.favourite = Stream(item ? !!item.favourite() : false);
+    this.graded = Stream(item ? !!item.graded() : false);
+    // A moderator changing someone else's item: what they paid stays private to them.
+    this.owner = this.collection.user();
+    this.isOwner = !this.owner || (!!app.session.user && this.owner.id() === app.session.user.id());
+    this.rating = Stream(item ? (item.rating() ?? null) : null);
+    this.progress = Stream(item ? item.progress() || '' : '');
+    this.pricePaid = Stream(item && item.pricePaid() !== null && item.pricePaid() !== undefined ? String(item.pricePaid()) : '');
+    this.priceCurrency = Stream(item ? item.priceCurrency() || defaultCurrency() : defaultCurrency());
+    this.code = null;
+    this.queued = [];
+    // A choice detail opened past its chips ("Other…").
+    this.otherShown = {};
+    this.cardLanguages = CARD_LANGUAGES[this.type.source()] || null;
+    this.cardLang = this.cardLanguages ? cardLanguage(this.cardLanguages) : null;
+    if (!item && this.work) this.prefillFromFacts(this.work.facts());
+  }
+
+  /**
+   * Another member's details that fit this collection: the same detail (and,
+   * for a choice, an option this type has), never their copy's own state,
+   * and not the platform or variant when the title lists its own to choose
+   * from (their Xbox copy says nothing about yours).
+   */
+  copiedFields(from) {
+    const facts = from.work()?.facts() || {};
+    const offered = { platform: facts.platforms, variant: facts.card?.variants };
+    const copied = {};
+    Object.entries(from.fields() || {}).forEach(([key, value]) => {
+      const f = (this.type.fields() || []).find((field) => field.key === key);
+      if (!f || OWN_DETAILS.includes(key) || (offered[key] || []).length) return;
+      if (f.kind === 'select' && !(f.options || []).some((o) => o.key === value)) return;
+      copied[key] = value;
+    });
+    return copied;
+  }
+
+  onremove(vnode) {
+    super.onremove(vnode);
+    this.scanning && this.scanning.stop();
+    this.queued.forEach((q) => URL.revokeObjectURL(q.url));
+  }
+
+  className() {
+    return 'CurioItemEditModal Modal--medium';
+  }
+
+  title() {
+    return this.attrs.item ? t('item_edit.title_edit') : t('item_edit.title_new', { name: this.collection.name() });
+  }
+
+  content() {
+    return (
+      <div className="Modal-body">
+        {this.attrs.item || !this.findable ? null : (
+          <div className="CurioTabs" role="tablist">
+            <button
+              type="button"
+              role="tab"
+              aria-selected={this.step === 'find' ? 'true' : 'false'}
+              className={this.step === 'find' ? 'active' : ''}
+              onclick={() => (this.step = 'find')}
+            >
+              <Icon name="fas fa-magnifying-glass" /> {t('item_edit.tab_find')}
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={this.step === 'details' ? 'true' : 'false'}
+              className={this.step === 'details' ? 'active' : ''}
+              onclick={() => (this.step = 'details')}
+            >
+              <Icon name="fas fa-pen" /> {t('item_edit.tab_details')}
+            </button>
+          </div>
+        )}
+        {this.step === 'find' ? this.findStep() : this.detailsStep()}
+      </div>
+    );
+  }
+
+  // ── Look it up ─────────────────────────────────────────────────────────
+  findStep() {
+    const searchable = this.type.searchable();
+
+    return (
+      <div className="CurioFind">
+        <div className="CurioFind-row">
+          <div className="Form-group CurioSearchField CurioSearchField--big">
+            <Icon name={this.barcode ? 'fas fa-barcode' : 'fas fa-magnifying-glass'} />
+            <input
+              className="FormControl"
+              value={this.query()}
+              placeholder={text(this.placeholder(searchable))}
+              aria-label={text(this.placeholder(searchable))}
+              oninput={(e) => this.typed(e.target.value)}
+              onkeydown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  this.search();
+                }
+              }}
+            />
+          </div>
+          {this.cardLanguages ? (
+            <Select
+              className="CurioCardLang"
+              wrapperAttrs={{ className: 'CurioCardLang-wrap' }}
+              aria-label={text('item_edit.card_language')}
+              title={text('item_edit.card_language')}
+              value={this.cardLang}
+              onchange={(code) => this.pickLanguage(code)}
+              options={Object.fromEntries(this.cardLanguages.map((code) => [code, languageName(code)]))}
+            />
+          ) : null}
+          {this.barcodes && canScan() ? (
+            <Button
+              type="button"
+              className={'Button CurioScanButton' + (this.scanning ? ' Button--primary' : '')}
+              icon="fas fa-barcode"
+              onclick={() => this.toggleScan()}
+            >
+              {this.scanning ? t('item_edit.scan_stop') : t('item_edit.scan')}
+            </Button>
+          ) : null}
+        </div>
+
+        {this.scanning ? (
+          <div className="CurioScanner">
+            <video playsinline muted oncreate={(v) => this.startScan(v.dom)} />
+            <span className="CurioScanner-line" />
+          </div>
+        ) : null}
+
+        {this.scannedNote(searchable)}
+
+        {this.searching ? <LoadingIndicator display="block" /> : this.resultList()}
+
+        {this.resolving ? <LoadingIndicator display="block" /> : null}
+
+        {CARD_SOURCES.includes(this.type.source()) ? (
+          <p className="CurioHint">
+            <Icon name="fas fa-hashtag" /> {t('item_edit.card_hint')}
+          </p>
+        ) : null}
+        <p className="CurioHint">
+          <Icon name="fas fa-language" /> {t('item_edit.find_hint')}
+        </p>
+        <div className="CurioModalFooter">
+          <Button type="button" className="Button Button--link" onclick={() => this.manual()}>
+            {t('item_edit.by_hand')}
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
+  placeholder(searchable) {
+    if (!this.barcodes) return 'item_edit.title_placeholder';
+    return searchable ? 'item_edit.search_placeholder' : 'item_edit.barcode_placeholder';
+  }
+
+  /**
+   * What a scanned barcode turned out to be. Never nothing: a barcode no
+   * service knows offers the title search, and the code stays with the item
+   * picked or typed, so the forum learns it for the next person.
+   */
+  scannedNote(searchable) {
+    const b = this.barcode;
+    if (!b) {
+      return this.code && this.results ? (
+        <div className="CurioScanned CurioScanned--kept">
+          <Icon name="fas fa-barcode" /> {t('item_edit.barcode_kept', { code: this.code })}
+        </div>
+      ) : null;
+    }
+    if (b.results.length) {
+      return (
+        <div className="CurioScanned">
+          <Icon name="fas fa-circle-check" />{' '}
+          {barcodeName(b)
+            ? t('item_edit.barcode_found_named', { code: b.code, title: barcodeName(b) })
+            : t('item_edit.barcode_found', { code: b.code })}
+        </div>
+      );
+    }
+
+    const message = b.unavailable
+      ? t('item_edit.barcode_unavailable', { code: b.code })
+      : b.title
+        ? t('item_edit.barcode_named', { code: b.code, title: b.title })
+        : t('item_edit.barcode_miss', { code: b.code });
+
+    return (
+      <div className="CurioScanned CurioScanned--miss">
+        <Icon name="fas fa-circle-question" />
+        <div>
+          <p>{message}</p>
+          <p className="CurioMuted">{t('item_edit.barcode_teach')}</p>
+          {searchable ? (
+            <Button type="button" className="Button Button--primary" icon="fas fa-magnifying-glass" onclick={() => this.byTitle(b.title)}>
+              {t('item_edit.by_title')}
+            </Button>
+          ) : null}
+        </div>
+      </div>
+    );
+  }
+
+  /** From a barcode nobody matched to the title search, the barcode kept for the item. */
+  byTitle(title) {
+    this.barcode = null;
+    this.results = null;
+    this.query(title || '');
+    if (title) this.search();
+    m.redraw.sync();
+    this.$('.CurioSearchField input').trigger('focus');
+  }
+
+  resultList() {
+    if (!this.results || (this.barcode && !this.results.length)) return null;
+    if (!this.results.length) {
+      return (
+        <p className="CurioEmpty">
+          {this.cardLanguages ? t('item_edit.no_cards_in', { language: languageName(this.cardLang, false) }) : t('item_edit.no_results')}
+        </p>
+      );
+    }
+
+    return (
+      <ul className="CurioResults">
+        {this.results.map((r) => (
+          <li>
+            <button type="button" className="CurioResult" onclick={() => this.pick(r)} disabled={this.resolving}>
+              <span className={'CurioResult-cover CurioResult-cover--' + this.type.shape()}>
+                {r.cover ? <img src={r.cover} alt="" loading="lazy" /> : <Icon name={this.type.icon()} />}
+              </span>
+              <span className="CurioResult-body">
+                <strong>
+                  {r.title} {r.year ? <span className="CurioMuted">({r.year})</span> : null}
+                </strong>
+                {r.release && app.translator.translations[`ernestdefoe-curio.forum.item_edit.release.${r.release}`] ? (
+                  <span className="CurioResult-chips">
+                    <span className="CurioChip CurioChip--release">{t(`item_edit.release.${r.release}`)}</span>
+                  </span>
+                ) : null}
+                {r.creator || r.set || r.number ? (
+                  <span className="CurioMuted">
+                    {[r.name && r.name !== r.title ? r.name : null, r.creator, r.set, r.number].filter(Boolean).join(' · ')}
+                  </span>
+                ) : null}
+                {this.barcode && Object.keys(this.barcode.fields || {}).length ? (
+                  <span className="CurioResult-chips">
+                    {this.type
+                      .fields()
+                      .filter((f) => this.barcode.fields[f.key])
+                      .map((f) => (
+                        <span className="CurioChip CurioChip--found">{this.fieldText(f, this.barcode.fields[f.key])}</span>
+                      ))}
+                  </span>
+                ) : null}
+              </span>
+              <Icon name="fas fa-chevron-right" className="CurioResult-go" />
+            </button>
+            {this.variants(r)}
+          </li>
+        ))}
+        {this.more ? (
+          <li className="CurioResults-more">
+            <Button type="button" className="Button" loading={this.loadingMore} onclick={() => this.search(this.page + 1)}>
+              {t('item_edit.more_results')}
+            </Button>
+          </li>
+        ) : null}
+      </ul>
+    );
+  }
+
+  typed(value) {
+    this.query(value);
+    clearTimeout(this.debounce);
+    // A barcode is searched when complete (Enter or a scanner's own Enter), not while typing digits.
+    if (this.barcodes && /^[\d\s-]*$/.test(value)) return;
+    this.debounce = setTimeout(() => this.search(), 350);
+  }
+
+  /** A search, or (page > 1) the next page of the same one: "More results". */
+  search(page = 1) {
+    const q = this.query().trim();
+    if (!q) return;
+
+    if (page > 1) this.loadingMore = true;
+    else {
+      this.searching = true;
+      this.barcode = null;
+    }
+    const asked = q;
+
+    const digits = this.barcodes && /^[\d\s-]+$/.test(q) ? q.replace(/\D/g, '') : null;
+    const extra = { ...(this.cardLang ? { lang: this.cardLang } : {}), ...(this.barcodes ? {} : { text: 1 }) };
+
+    lookup({ type: this.type.id(), q, page, ...extra }, !!digits)
+      .then((response) => {
+        if (this.query().trim() !== asked) return;
+        const found = response.results || [];
+        this.results = page > 1 ? [...(this.results || []), ...found] : found;
+        this.page = page;
+        this.more = !!response.more;
+        // A title search keeps the barcode scanned before it: it is saved with what is picked.
+        if (page === 1) {
+          this.barcode = response.barcode || null;
+          if (response.barcode) this.code = response.barcode.code;
+          // A barcode with a name: the name goes in the box, to refine and search again.
+          const named = barcodeName(response.barcode);
+          if (named) this.query(named);
+        }
+      })
+      .catch(() => {
+        if (page > 1) return;
+        this.results = [];
+        if (digits) {
+          this.barcode = { code: digits, results: [], fields: {}, title: null, unavailable: true };
+          this.code = digits;
+        }
+      })
+      .finally(() => {
+        this.searching = this.loadingMore = false;
+        m.redraw();
+      });
+  }
+
+  /** Another card language: remembered on this device, and the search asked again. */
+  pickLanguage(code) {
+    this.cardLang = code;
+    try {
+      localStorage.setItem(LANGUAGE_KEY, code);
+    } catch (e) {
+      // Kept for this window only.
+    }
+    if (this.query().trim() && !(this.barcodes && /^[\d\s-]*$/.test(this.query()))) this.search();
+  }
+
+  toggleScan() {
+    if (this.scanning) {
+      this.scanning.stop();
+      this.scanning = null;
+      return;
+    }
+    this.scanning = { stop() {} };
+  }
+
+  startScan(video) {
+    const session = scan(video);
+    this.scanning = session;
+    session.result
+      .then((code) => {
+        if (!code) return;
+        this.scanning = null;
+        this.query(code);
+        this.search();
+      })
+      .catch(() => {
+        this.scanning = null;
+        this.alertAttrs = { type: 'error', content: t('item_edit.camera_error') };
+      })
+      .finally(() => m.redraw());
+  }
+
+  manual() {
+    if (this.barcode) {
+      this.code = this.barcode.code;
+      if (this.barcode.title && !this.itemTitle()) this.itemTitle(this.barcode.title);
+      Object.assign(this.fields, this.barcode.fields || {});
+    } else if (this.query().trim() && !(this.barcodes && /^\d/.test(this.query()))) {
+      this.itemTitle(this.itemTitle() || this.query().trim());
+    }
+    this.step = 'details';
+  }
+
+  /**
+   * The versions a result comes in (a game's platforms, a card's printings):
+   * one click adds that one. Eight show; the rest are a click away.
+   */
+  variants(r) {
+    const all = r.variants || [];
+    if (!all.length) return null;
+    const open = this.openVariants === r;
+    const shown = open ? all : all.slice(0, 8);
+
+    return (
+      <div className="CurioResult-variants">
+        {shown.map((v) => (
+          <button type="button" className="CurioChip CurioChip--pick" title={v.title} disabled={this.resolving} onclick={() => this.pick(r, v)}>
+            {v.label}
+          </button>
+        ))}
+        {all.length > shown.length ? (
+          <button type="button" className="CurioChip CurioChip--more" onclick={() => (this.openVariants = r)}>
+            +{all.length - shown.length}
+          </button>
+        ) : null}
+      </div>
+    );
+  }
+
+  /**
+   * Looked-up values into the type's details of the same key: a text detail
+   * takes the value, a choice takes the one option it names (if exactly one).
+   */
+  applyFields(values, hint, overwrite = true) {
+    const fields = this.type.fields() || [];
+    Object.entries(values || {}).forEach(([key, value]) => {
+      const f = fields.find((field) => field.key === key);
+      if (!f || value === null || value === undefined || value === '' || (!overwrite && this.fields[key])) return;
+      if (f.kind === 'select') {
+        const option = onlyOption(f, [value, hint].filter(Boolean));
+        if (option) this.fields[key] = option;
+      } else if (f.kind === 'text') {
+        this.fields[key] = (key === 'language' ? languageName(value) : String(value)).slice(0, 200);
+      }
+    });
+  }
+
+  pick(result, variant) {
+    this.resolving = true;
+    const found = result.workId ? Promise.resolve(result.workId) : lookup({ source: result.source, id: result.id }).then((r) => r.workId);
+
+    found
+      .then((workId) => app.store.find('curio-works', workId))
+      .then((work) => {
+        this.work = work;
+        this.itemTitle(work.originalTitle());
+        this.subtitle(work.creator() || '');
+        this.year(work.year() ? String(work.year()) : '');
+        if (this.barcode) Object.assign(this.fields, this.barcode.fields || {});
+        this.prefillFromFacts(work.facts(), this.query());
+        // The version clicked, or the only one there is.
+        const only = variant || ((result.variants || []).length === 1 ? result.variants[0] : null);
+        if (only) this.applyFields(only.fields, only.label);
+        this.step = 'details';
+      })
+      .catch(() => (this.alertAttrs = { type: 'error', content: t('item_edit.lookup_failed') }))
+      .finally(() => {
+        this.resolving = false;
+        m.redraw();
+      });
+  }
+
+  /**
+   * A game found on IGDB names its platforms: when only one of them is an
+   * option here, it is chosen. A card names its set, number, rarity and
+   * language: each fills the detail of that name, if the type has one.
+   */
+  prefillFromFacts(facts, asked = '') {
+    if (!facts) return;
+    if (facts.platforms) {
+      (this.type.fields() || [])
+        .filter((f) => f.kind === 'select' && f.key === 'platform' && !this.fields[f.key])
+        .forEach((f) => {
+          const key = onlyOption(f, facts.platforms);
+          if (key) this.fields[f.key] = key;
+        });
+    }
+    if (facts.card) {
+      this.applyFields(facts.card, null, false);
+      // Printed one way only, or the search named the printing ("trick or trade"): that one.
+      const printings = this.printings(facts);
+      const hints = PRINTING_HINTS.filter(([words]) => words.test(asked)).map(([, part]) => part);
+      const hinted = hints.length ? printings.filter((key) => hints.every((part) => key.split('.').includes(part))) : [];
+      const only = printings.length === 1 ? printings : hinted.length === 1 ? hinted : [];
+      (this.type.fields() || [])
+        .filter((f) => f.kind === 'select' && f.key === 'variant' && !this.fields.variant && only.length)
+        .forEach((f) => ((f.options || []).some((o) => o.key === only[0]) || only[0].includes('.')) && (this.fields.variant = only[0]));
+    }
+  }
+
+  /**
+   * The versions this title really comes in, as [name, option key]: a game's
+   * platforms ("Out on"), a card's finishes (normal, reverse holo…). Only
+   * the ones this type offers.
+   */
+  versionChoices(f) {
+    const facts = this.work?.facts() || {};
+    if (f.key === 'platform') {
+      return (facts.platforms || []).map((name) => [name, onlyOption(f, [name])]).filter(([, key]) => key);
+    }
+    if (f.key === 'variant') {
+      // Each printing TCGdex lists (a Trick or Trade stamp, a cosmos holo), else the finishes this type has a choice for.
+      return this.printings(facts)
+        .filter((key) => key.includes('.') || (f.options || []).some((o) => o.key === key))
+        .map((key) => [optionLabel(f, key, locale()), key]);
+    }
+    return [];
+  }
+
+  /** A card's printings as Variant keys: TCGdex's detailed list when it has one, else its plain finishes. */
+  printings(facts) {
+    const card = facts?.card || {};
+    return card.printings && card.printings.length ? card.printings : card.variants || [];
+  }
+
+  /**
+   * A choice the title narrows down: its versions as chips, one click to
+   * choose (again to clear), and "Other…" for one it doesn't list, which
+   * opens the full menu. The chosen one is marked.
+   */
+  chipField(f, id, value, set, choices) {
+    const listed = choices.some(([, key]) => key === value);
+    const other = this.otherShown[f.key] || (!!value && !listed);
+    const labelId = id + '-label';
+
+    return (
+      <div className="Form-group CurioFieldGrid-wide">
+        <label id={labelId} for={other ? id : undefined}>
+          {label(f.labels)}
+        </label>
+        <div className="CurioChips" role="group" aria-labelledby={labelId}>
+          {choices.map(([name, key]) => (
+            <button
+              type="button"
+              className={'CurioChip CurioChip--pick' + (value === key ? ' CurioChip--on' : '')}
+              aria-pressed={value === key ? 'true' : 'false'}
+              onclick={() => {
+                set(value === key ? '' : key);
+                this.otherShown[f.key] = false;
+              }}
+            >
+              {name}
+            </button>
+          ))}
+          <button
+            type="button"
+            className={'CurioChip CurioChip--more' + (other ? ' CurioChip--on' : '')}
+            aria-expanded={other ? 'true' : 'false'}
+            aria-controls={other ? id : undefined}
+            onclick={() => {
+              if (other && value && !listed) set('');
+              this.otherShown[f.key] = !other;
+              if (!other) {
+                m.redraw.sync();
+                document.getElementById(id)?.focus();
+              }
+            }}
+          >
+            {t('item_edit.other_choice')}
+          </button>
+        </div>
+        {other ? (
+          <Select
+            id={id}
+            value={value || ''}
+            onchange={set}
+            options={{ '': text('item_edit.choose'), ...Object.fromEntries((f.options || []).map((o) => [o.key, pick(o.labels, locale())])) }}
+          />
+        ) : null}
+      </div>
+    );
+  }
+
+  // ── Details & photos ───────────────────────────────────────────────────
+  fieldText(field, value) {
+    if (field.kind === 'bool') return label(field.labels);
+    if (field.kind === 'select') {
+      const option = (field.options || []).find((o) => o.key === value);
+      return option ? label(option.labels) : value;
+    }
+    return value;
+  }
+
+  detailsStep() {
+    const item = this.attrs.item;
+    const photos = item ? item.photos() || [] : [];
+    const cover = this.work ? this.work.coverUrl() : null;
+    const room = MAX_PHOTOS - photos.length - this.queued.length;
+
+    return (
+      <div className="CurioDetails">
+        <div className="CurioDetails-media">
+          <div className={'CurioDetails-cover CurioDetails-cover--' + this.type.shape()}>
+            {photos[0] || this.queued[0] ? (
+              <img src={photos[0] ? photos[0].small : this.queued[0].url} alt="" />
+            ) : cover ? (
+              <img src={cover} alt="" />
+            ) : (
+              <Icon name={this.type.icon()} />
+            )}
+            {cover && !photos.length && !this.queued.length ? (
+              <span className="CurioDetails-coverLabel">{t('item_edit.cover_looked_up')}</span>
+            ) : null}
+          </div>
+          <div className="CurioThumbs">
+            {photos.map((p, i) => (
+              <span className="CurioThumb">
+                <img src={p.small} alt="" />
+                <button type="button" className="CurioThumb-remove" aria-label={text('item_edit.remove_photo')} onclick={() => this.removePhoto(i)}>
+                  <Icon name="fas fa-xmark" />
+                </button>
+              </span>
+            ))}
+            {this.queued.map((q, i) => (
+              <span className="CurioThumb">
+                <img src={q.url} alt="" />
+                <button
+                  type="button"
+                  className="CurioThumb-remove"
+                  aria-label={text('item_edit.remove_photo')}
+                  onclick={() => {
+                    URL.revokeObjectURL(q.url);
+                    this.queued.splice(i, 1);
+                  }}
+                >
+                  <Icon name="fas fa-xmark" />
+                </button>
+              </span>
+            ))}
+          </div>
+          {room > 0 ? (
+            <label className="CurioDrop" ondragover={(e) => e.preventDefault()} ondrop={(e) => this.dropped(e)}>
+              <input type="file" accept="image/jpeg,image/png,image/webp" multiple onchange={(e) => this.chosen(e.target.files)} />
+              <Icon name="fas fa-camera" />
+              <span>{t('item_edit.add_photos')}</span>
+              <small>{t('item_edit.photos_hint', { count: room })}</small>
+            </label>
+          ) : null}
+        </div>
+
+        <div className="CurioDetails-fields" onpaste={(e) => this.pasted(e)}>
+          {this.isOwner || !this.owner ? null : (
+            <p className="CurioModNote">
+              <Icon name="fas fa-user-shield" />
+              <span>{t('item_edit.someone_elses', { name: extractText(username(this.owner)) })}</span>
+            </p>
+          )}
+          <div className="Form-group">
+            <label for="curio-title">{t('item_edit.title')}</label>
+            <input id="curio-title" name="title" className="FormControl" maxlength="255" bidi={this.itemTitle} />
+            {this.work && this.work.languages() > 1 ? (
+              <small className="CurioHint">
+                <Icon name="fas fa-language" /> {t('item_edit.translated_hint', { count: this.work.languages() })}
+              </small>
+            ) : null}
+          </div>
+          <div className="CurioPair">
+            <div className="Form-group">
+              <label for="curio-subtitle">{t('item_edit.subtitle')}</label>
+              <input id="curio-subtitle" name="subtitle" className="FormControl" maxlength="255" bidi={this.subtitle} />
+            </div>
+            <div className="Form-group CurioPair-small">
+              <label for="curio-year">{t('item_edit.year')}</label>
+              <input id="curio-year" name="year" className="FormControl" inputmode="numeric" maxlength="4" bidi={this.year} />
+            </div>
+          </div>
+
+          {this.typeFields()}
+
+          <div className="Form-group">
+            <label>{t('item_edit.status')}</label>
+            <div className="ButtonGroup CurioStatusPick" role="radiogroup">
+              {STATUSES.map((s) => (
+                <Button
+                  type="button"
+                  role="radio"
+                  aria-checked={this.status() === s ? 'true' : 'false'}
+                  className={'Button' + (this.status() === s ? ' Button--primary' : '')}
+                  onclick={() => this.status(s)}
+                >
+                  {t('status.' + s)}
+                </Button>
+              ))}
+            </div>
+          </div>
+
+          {this.type.progress() && this.status() !== 'wishlist' ? (
+            <div className="Form-group">
+              <label for="curio-progress">{t('progress.label')}</label>
+              <Select
+                id="curio-progress"
+                value={this.progress()}
+                onchange={this.progress}
+                options={{ '': text('progress.none'), ...Object.fromEntries(PROGRESS.map((p) => [p, text('progress.' + p)])) }}
+              />
+            </div>
+          ) : null}
+
+          {this.status() === 'wishlist' ? null : (
+            <div className="CurioPair">
+              <div className="Form-group">
+                <label for="curio-condition">{t('item_edit.condition')}</label>
+                <Select
+                  id="curio-condition"
+                  value={this.condition()}
+                  onchange={this.condition}
+                  options={{
+                    '': text('item_edit.condition_none'),
+                    ...Object.fromEntries(conditionsFor(this.type).map((c) => [c, extractText(conditionText(this.type, c))])),
+                  }}
+                />
+              </div>
+              <div className="Form-group">
+                <label for="curio-acquired">{t('item_edit.acquired')}</label>
+                <input
+                  id="curio-acquired"
+                  name="acquiredOn"
+                  type="date"
+                  className="FormControl"
+                  max={new Date().toISOString().slice(0, 10)}
+                  bidi={this.acquiredOn}
+                />
+              </div>
+            </div>
+          )}
+
+          <div className="Form-group">
+            <label for="curio-notes">{t('item_edit.notes')}</label>
+            <textarea
+              id="curio-notes"
+              name="notes"
+              className="FormControl"
+              rows="3"
+              maxlength="2000"
+              bidi={this.notes}
+              placeholder={text('item_edit.notes_placeholder')}
+            />
+          </div>
+
+          {this.type.grading() && this.status() !== 'wishlist' ? (
+            <div className="Form-group">
+              <Switch state={this.graded()} onchange={this.graded}>
+                <Icon name="fas fa-certificate" /> {t('item_edit.graded')}
+              </Switch>
+              <small className="CurioHint">{t('item_edit.graded_help')}</small>
+            </div>
+          ) : null}
+
+          {this.status() === 'wishlist' || !this.isOwner ? null : (
+            <div className="Form-group">
+              <label for="curio-price">
+                {t('item_edit.price')}{' '}
+                <span className="CurioPrivate">
+                  <Icon name="fas fa-lock" /> {t('item_edit.price_private')}
+                </span>
+              </label>
+              <div className="CurioPrice">
+                <input id="curio-price" name="pricePaid" className="FormControl" inputmode="decimal" bidi={this.pricePaid} />
+                <Select value={this.priceCurrency()} onchange={this.priceCurrency} options={Object.fromEntries(CURRENCIES.map((c) => [c, c]))} />
+              </div>
+            </div>
+          )}
+
+          {this.status() === 'wishlist' ? null : (
+            <div className="Form-group">
+              <label>{t('item_edit.rating')}</label>
+              <div className="CurioRating">
+                <Tooltip text={text('item_edit.rating_zero')}>
+                  <button
+                    type="button"
+                    className={'CurioRating-zero' + (this.rating() === 0 ? ' active' : '')}
+                    aria-label={text('item_edit.rating_zero')}
+                    aria-pressed={this.rating() === 0 ? 'true' : 'false'}
+                    onclick={() => this.rating(this.rating() === 0 ? null : 0)}
+                  >
+                    0
+                  </button>
+                </Tooltip>
+                <Stars value={this.rating()} onchange={this.rating} label={text('item_edit.rating')} />
+                <small>{this.rating() != null ? t('item_edit.rating_value', { stars: this.rating() / 2 }) : t('item_edit.rating_none')}</small>
+              </div>
+            </div>
+          )}
+
+          <div className="Form-group">
+            <Switch state={this.favourite()} onchange={this.favourite}>
+              <Icon name="fas fa-star" /> {t('item_edit.favourite')}
+            </Switch>
+          </div>
+
+          <div className="CurioModalFooter">
+            {this.attrs.item ? (
+              <Button type="button" className="Button Button--danger" icon="fas fa-trash" onclick={() => this.deleteItem()}>
+                {t('item_edit.delete')}
+              </Button>
+            ) : (
+              <span />
+            )}
+            <Button type="submit" className="Button Button--primary" icon="fas fa-check" loading={this.loading} disabled={!this.itemTitle().trim()}>
+              {this.attrs.item ? t('item_edit.save') : t('item_edit.add')}
+            </Button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  typeFields() {
+    const fields = this.type.fields() || [];
+    if (!fields.length) return null;
+
+    return (
+      <div className="CurioFieldGrid">
+        {fields.map((f) => {
+          const id = 'curio-field-' + f.key;
+          const value = this.fields[f.key];
+          const set = (v) => {
+            if (v === '' || v === null || v === false) delete this.fields[f.key];
+            else this.fields[f.key] = v;
+          };
+
+          if (f.kind === 'bool') {
+            return (
+              <div className="Form-group CurioFieldGrid-bool">
+                <Switch state={!!value} onchange={set}>
+                  {label(f.labels)}
+                </Switch>
+              </div>
+            );
+          }
+
+          const choices = f.kind === 'select' ? this.versionChoices(f) : [];
+          if (choices.length >= 2) return this.chipField(f, id, value, set, choices);
+
+          return (
+            <div className="Form-group">
+              <label for={id}>{label(f.labels)}</label>
+              {f.kind === 'select' ? (
+                <Select
+                  id={id}
+                  value={value || ''}
+                  onchange={set}
+                  options={{ '': text('item_edit.choose'), ...Object.fromEntries((f.options || []).map((o) => [o.key, pick(o.labels, locale())])) }}
+                />
+              ) : (
+                <input
+                  id={id}
+                  className="FormControl"
+                  type={f.kind === 'number' ? 'number' : f.kind === 'date' ? 'date' : f.kind === 'link' ? 'url' : 'text'}
+                  value={value || ''}
+                  maxlength={f.kind === 'link' ? 500 : 200}
+                  placeholder={f.kind === 'link' ? 'https://' : undefined}
+                  oninput={(e) => set(e.target.value)}
+                />
+              )}
+            </div>
+          );
+        })}
+      </div>
+    );
+  }
+
+  chosen(files) {
+    Array.from(files || [])
+      .filter((f) => /^image\/(jpeg|png|webp)$/.test(f.type))
+      .slice(0, MAX_PHOTOS - (this.attrs.item?.photos()?.length || 0) - this.queued.length)
+      .forEach((file) => this.queued.push({ file, url: URL.createObjectURL(file) }));
+    m.redraw();
+  }
+
+  dropped(e) {
+    e.preventDefault();
+    this.chosen(e.dataTransfer.files);
+  }
+
+  pasted(e) {
+    const files = Array.from(e.clipboardData?.files || []);
+    if (files.length) {
+      e.preventDefault();
+      this.chosen(files);
+    }
+  }
+
+  removePhoto(index) {
+    const item = this.attrs.item;
+    app.request({ method: 'DELETE', url: `${app.forum.attribute('apiUrl')}/curio-items/${item.id()}/photos/${index}` }).then((payload) => {
+      app.store.pushPayload(payload);
+      m.redraw();
+    });
+  }
+
+  uploadQueued(item) {
+    return this.queued.reduce(
+      (chain, q) =>
+        chain.then(() => {
+          const body = new FormData();
+          body.append('photo', q.file);
+          return app
+            .request({ method: 'POST', url: `${app.forum.attribute('apiUrl')}/curio-items/${item.id()}/photos`, serialize: (raw) => raw, body })
+            .then((payload) => app.store.pushPayload(payload));
+        }),
+      Promise.resolve()
+    );
+  }
+
+  onsubmit(e) {
+    e.preventDefault();
+    const item = this.attrs.item;
+    const wanted = this.status() === 'wishlist';
+    const price = this.pricePaid().trim().replace(',', '.');
+
+    const attrs = {
+      title: this.itemTitle().trim(),
+      subtitle: this.subtitle().trim() || null,
+      year: /^\d{1,4}$/.test(this.year().trim()) ? Number(this.year().trim()) : null,
+      status: this.status(),
+      condition: wanted ? null : this.condition() || null,
+      acquiredOn: wanted ? null : this.acquiredOn() || null,
+      fields: this.fields,
+      notes: this.notes().trim() || null,
+      favourite: this.favourite(),
+      graded: !wanted && this.type.grading() ? this.graded() : !!item?.graded(),
+      rating: wanted ? null : this.rating(),
+      progress: wanted ? null : this.type.progress() ? this.progress() || null : item?.progress() || null,
+      pricePaid: wanted || price === '' || isNaN(Number(price)) ? null : Number(price),
+      priceCurrency: wanted || price === '' ? null : this.priceCurrency(),
+    };
+    // Someone else's item: what they paid is theirs alone (never sent, never cleared).
+    if (!this.isOwner) {
+      delete attrs.pricePaid;
+      delete attrs.priceCurrency;
+    }
+
+    if (!item) {
+      attrs.relationships = { collection: this.collection };
+      if (this.work) attrs.relationships.work = this.work;
+      if (this.code) attrs.barcode = this.code;
+    }
+
+    this.loading = true;
+    (item || app.store.createRecord('curio-items'))
+      .save(attrs)
+      .then((saved) => this.uploadQueued(saved).then(() => saved))
+      .then((saved) => closeThen(this.attrs.onsave, saved))
+      .catch((error) => {
+        this.loading = false;
+        this.onerror(error);
+      });
+  }
+
+  deleteItem() {
+    const item = this.attrs.item;
+    if (!confirm(text('item_edit.delete_confirm', { title: item.title() }))) return;
+    this.loading = true;
+    item
+      .delete()
+      .then(() => closeThen(this.attrs.ondelete, item))
+      .catch((error) => {
+        this.loading = false;
+        this.onerror(error);
+      });
+  }
+}
