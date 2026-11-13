@@ -1,0 +1,190 @@
+<?php
+
+use Ernestdefoe\Curio\Access;
+use Ernestdefoe\Curio\Api;
+use Ernestdefoe\Curio\Badges;
+use Ernestdefoe\Curio\Collection;
+use Ernestdefoe\Curio\Console\ImportShelf;
+use Ernestdefoe\Curio\Event\CollectionCreated;
+use Ernestdefoe\Curio\Event\ItemsChanged;
+use Ernestdefoe\Curio\Console\LinkEditions;
+use Ernestdefoe\Curio\Console\MatchWorks;
+use Ernestdefoe\Curio\Console\PruneWorks;
+use Ernestdefoe\Curio\Console\RefreshTexts;
+use Ernestdefoe\Curio\Item;
+use Ernestdefoe\Curio\Search;
+use Ernestdefoe\Curio\Settings;
+use Ernestdefoe\Curio\Listener\LinkShownItem;
+use Ernestdefoe\Curio\Notification\NewItemsBlueprint;
+use Ernestdefoe\Curio\Notification\ProgressChangedBlueprint;
+use Ernestdefoe\Curio\Notification\RatingChangedBlueprint;
+use Ernestdefoe\Curio\Notification\WishlistAddedBlueprint;
+use Ernestdefoe\Curio\Notification\WishlistMatchBlueprint;
+use Flarum\Api\Context;
+use Flarum\Api\Endpoint;
+use Flarum\Api\Resource\DiscussionResource;
+use Flarum\Discussion\Discussion;
+use Flarum\Discussion\Event\Started;
+use Flarum\Api\Resource\ForumResource;
+use Flarum\Api\Resource\UserResource;
+use Flarum\Api\Schema;
+use Flarum\Extend;
+use Flarum\Foundation\Paths;
+use Flarum\Http\UrlGenerator;
+use Flarum\Search\Database\DatabaseSearchDriver;
+use Illuminate\Console\Scheduling\Event;
+
+return [
+    (new Extend\Frontend('forum'))
+        ->js(__DIR__.'/js/dist/forum.js')
+        ->jsDirectory(__DIR__.'/js/dist/forum')
+        ->css(__DIR__.'/less/forum.less')
+        ->route('/collections', 'curio.browse')
+        ->route('/collections/{id:\d+}[-{slug}]', 'curio.collection')
+        ->route('/u/{username}/collections', 'user.curio'),
+
+    (new Extend\Frontend('admin'))
+        ->js(__DIR__.'/js/dist/admin.js')
+        ->css(__DIR__.'/less/admin.less'),
+
+    new Extend\Locales(__DIR__.'/locale'),
+
+    (new Extend\Filesystem())
+        ->disk('ernestdefoe-curio', fn (Paths $paths, UrlGenerator $url) => [
+            'root' => "$paths->public/assets/curio",
+            'url' => $url->to('forum')->path('assets/curio'),
+            'visibility' => 'public',
+        ]),
+
+    // Keys as strings, never Settings:: or Images:: constants: this file is read at boot,
+    // and a class autoloaded here fatals every request while a deploy updates composer.
+    (new Extend\Settings())
+        ->default('ernestdefoe-curio.max_upload_kb', 8192)
+        ->default('ernestdefoe-curio.widget', false)
+        ->default('ernestdefoe-curio.browse_layout', 'tags')
+        ->default('ernestdefoe-curio.browse_ranking', 'collections')
+        ->default('ernestdefoe-curio.shortcut', 'both')
+        ->default('ernestdefoe-curio.cover_fit', 'blur')
+        ->default('ernestdefoe-curio.hide_empty_types', false)
+        ->default('ernestdefoe-curio.type_color', 'background')
+        ->default('ernestdefoe-curio.latest_changes', true)
+        ->default('ernestdefoe-curio.barcodes', true)
+        ->default('ernestdefoe-curio.editions_share_discussion', true)
+        // A boolean: whether to offer the "Recently added" widget to Bespoke / FoF Forum Widgets.
+        ->serializeToForum('curioWidget', 'ernestdefoe-curio.widget', 'boolval')
+        ->serializeToForum('curioBarcodes', 'ernestdefoe-curio.barcodes', 'boolval')
+        ->serializeToForum('curioCoverFit', 'ernestdefoe-curio.cover_fit', fn ($value) => in_array($value, Settings::COVER_FITS, true) ? $value : 'blur')
+        ->serializeToForum('curioShortcut', 'ernestdefoe-curio.shortcut', fn ($value) => in_array($value, Settings::SHORTCUTS, true) ? $value : 'both')
+        // The collector badge.
+        ->default('ernestdefoe-curio.collector_icon', 'fas fa-boxes-stacked')
+        ->default('ernestdefoe-curio.collector_place', 'none')
+        ->serializeToForum('curioCollector', 'ernestdefoe-curio.collector_place', fn ($value) => in_array($value, Settings::COLLECTOR_PLACES, true) ? $value : 'none')
+        ->serializeToForum('curioCollectorIcon', 'ernestdefoe-curio.collector_icon')
+        ->serializeToForum('curioCollectorText', 'ernestdefoe-curio.collector_text')
+        ->serializeToForum('curioCollectorColor', 'ernestdefoe-curio.collector_color'),
+
+    new Extend\ApiResource(Api\TypeResource::class),
+    new Extend\ApiResource(Api\CollectionResource::class),
+    new Extend\ApiResource(Api\ItemResource::class),
+    new Extend\ApiResource(Api\WorkResource::class),
+
+    (new Extend\ApiResource(ForumResource::class))
+        ->fields(fn () => [
+            Schema\Boolean::make('canViewCurio')
+                ->get(fn ($forum, Context $context) => $context->getActor()->hasPermission('ernestdefoe-curio.view')),
+            Schema\Boolean::make('canCreateCurio')
+                ->get(fn ($forum, Context $context) => $context->getActor()->hasPermission('ernestdefoe-curio.create')),
+            Schema\Boolean::make('canModerateCurio')
+                ->get(fn ($forum, Context $context) => $context->getActor()->hasPermission('ernestdefoe-curio.moderate')),
+        ]),
+
+    (new Extend\ApiResource(UserResource::class))
+        ->fields(Api\CollectorField::class),
+
+    (new Extend\ApiResource(DiscussionResource::class))
+        ->fields(Api\DiscussionFields::class)
+        ->endpoint('show', fn (Endpoint\Show $endpoint) => $endpoint->addDefaultInclude([
+            'curioItem', 'curioItem.work', 'curioItem.collection', 'curioItem.collection.user', 'curioItem.collection.type',
+        ])
+            // Marquee's title, loaded before the fields are read so curioMarquee can use it (Marquee
+            // includes it anyway; this only loads it earlier). Not there without Marquee.
+            ->eagerLoad(fn () => (new Discussion())->isRelation('marqueeMedia') ? ['marqueeMedia'] : [])),
+
+    (new Extend\Model(Discussion::class))
+        ->cast('curio_item_id', 'integer'),
+
+    (new Extend\Event())
+        ->listen(Started::class, LinkShownItem::class),
+
+    // FoF Badges triggers: items in a member's collections and collections made.
+    // Nothing of FoF Badges is loaded unless it is enabled.
+    (new Extend\Conditional())
+        ->whenExtensionEnabled('fof-badges', fn () => [
+            (new Extend\ServiceProvider())
+                ->register(Badges\BadgesServiceProvider::class),
+            (new Extend\Event())
+                ->listen(ItemsChanged::class, Badges\EvaluateBadges::class)
+                ->listen(CollectionCreated::class, Badges\EvaluateBadges::class),
+        ]),
+
+    (new Extend\View())
+        ->namespace('ernestdefoe-curio', __DIR__.'/views'),
+
+    (new Extend\Notification())
+        ->type(WishlistMatchBlueprint::class, ['alert', 'email'])
+        ->type(NewItemsBlueprint::class, ['alert'])
+        ->type(WishlistAddedBlueprint::class, ['alert'])
+        ->type(ProgressChangedBlueprint::class, ['alert'])
+        ->type(RatingChangedBlueprint::class, ['alert']),
+
+    (new Extend\Routes('api'))
+        ->post('/curio/lookup', 'curio.lookup', Api\LookupController::class)
+        ->get('/curio/overview', 'curio.overview', Api\OverviewController::class)
+        ->get('/curio/collectors', 'curio.collectors', Api\CollectorsController::class)
+        ->get('/curio/most-owned', 'curio.most-owned', Api\MostOwnedController::class)
+        ->get('/curio/marquee-card', 'curio.marquee-card', Api\MarqueeCardController::class),
+
+    (new Extend\SearchDriver(DatabaseSearchDriver::class))
+        ->addSearcher(Collection::class, Search\CollectionSearcher::class)
+        ->addFilter(Search\CollectionSearcher::class, Search\Filter\CollectionUserFilter::class)
+        ->addFilter(Search\CollectionSearcher::class, Search\Filter\CollectionTypeFilter::class)
+        ->addFilter(Search\CollectionSearcher::class, Search\Filter\FeaturedFilter::class)
+        ->addSearcher(Item::class, Search\ItemSearcher::class)
+        ->addFilter(Search\ItemSearcher::class, Search\Filter\ItemCollectionFilter::class)
+        ->addFilter(Search\ItemSearcher::class, Search\Filter\ItemUserFilter::class)
+        ->addFilter(Search\ItemSearcher::class, Search\Filter\StatusFilter::class)
+        ->addFilter(Search\ItemSearcher::class, Search\Filter\ProgressFilter::class)
+        ->addFilter(Search\ItemSearcher::class, Search\Filter\FacetFilter::class)
+        ->addFilter(Search\ItemSearcher::class, Search\Filter\TitleFilter::class)
+        ->addFilter(Search\ItemSearcher::class, Search\Filter\ChangedFilter::class)
+        ->addFilter(Search\ItemSearcher::class, Search\Filter\WorkFilter::class)
+        ->addFilter(Search\ItemSearcher::class, Search\Filter\IdsFilter::class),
+
+    (new Extend\ModelVisibility(Collection::class))
+        ->scope(Access\ScopeCollectionVisibility::class),
+    (new Extend\ModelVisibility(Item::class))
+        ->scope(Access\ScopeItemVisibility::class),
+
+    (new Extend\Policy())
+        ->modelPolicy(Collection::class, Access\CollectionPolicy::class)
+        ->modelPolicy(Item::class, Access\CollectionPolicy::class),
+
+    (new Extend\Console())
+        ->command(RefreshTexts::class)
+        ->command(ImportShelf::class)
+        ->command(MatchWorks::class)
+        ->command(PruneWorks::class)
+        ->command(LinkEditions::class)
+        ->schedule(MatchWorks::class, function (Event $event): void {
+            $event->everyFiveMinutes()->withoutOverlapping();
+        })
+        ->schedule(RefreshTexts::class, function (Event $event): void {
+            $event->daily()->withoutOverlapping();
+        })
+        ->schedule(PruneWorks::class, function (Event $event): void {
+            $event->daily()->withoutOverlapping();
+        })
+        ->schedule(LinkEditions::class, function (Event $event): void {
+            $event->hourly()->withoutOverlapping();
+        }),
+];
