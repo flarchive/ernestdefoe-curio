@@ -1,0 +1,125 @@
+// Only what can appear on any page: the "Recently added" widget. Everything
+// else is in pages.less and loads with Curio's own pages.
+
+// ── Widget ─────────────────────────────────────────────────────────────
+.CurioWidget {
+  &-title {
+    margin: 0 0 10px;
+  }
+
+  &-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+
+    a {
+      display: flex;
+      gap: 10px;
+      align-items: center;
+      padding: 6px 0;
+      color: inherit;
+    }
+
+    img,
+    .CurioWidget-blank {
+      width: 36px;
+      height: 48px;
+      object-fit: cover;
+      border-radius: 4px;
+      background: var(--control-bg);
+      flex-shrink: 0;
+    }
+
+    strong {
+      display: block;
+      font-size: 13px;
+    }
+
+    small {
+      display: flex;
+      gap: 4px;
+      align-items: center;
+      color: var(--muted-color);
+    }
+
+    .Avatar {
+      --size: 16px;
+      width: 16px;
+      height: 16px;
+      font-size: 8px;
+      line-height: 16px;
+    }
+  }
+
+  &-empty {
+    color: var(--muted-color);
+  }
+}
+
+
+// The composer's "Showing off …" chip: the composer stays open across pages.
+.CurioComposerItem {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--muted-color);
+
+  img {
+    width: 24px;
+    height: 32px;
+    object-fit: cover;
+    border-radius: 3px;
+  }
+
+  .Button {
+    margin: 0;
+  }
+}
+
+
+// A title on the reader's wishlist, on a Marquee card.
+.CurioMarqueeButton--wished .Button-icon {
+  color: #e5486b;
+}
+
+
+// The collector badge: an icon, no background, in the admin's colour (or the
+// text's own). html:not(#x-hi) adds an id's weight, so themes' link colours
+// (Bespoke's :root:not(…) a:not(.Button)) don't win.
+html:not(#x-hi) .CurioCollector {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--curio-collector, var(--muted-color));
+  text-decoration: none;
+  white-space: nowrap;
+
+  // A long label stops short instead of pushing the post's time off a phone.
+  &-label {
+    max-width: 12em;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  &:hover .CurioCollector-label {
+    text-decoration: underline;
+  }
+
+  // The name's size and baseline (measured: centred on it within 0.2px, default and
+  // Bespoke, desktop and phone); a theme that resizes the name resizes it too.
+  &--post {
+    margin-left: 6px;
+    font-size: 1em;
+    font-weight: normal;
+  }
+
+  // On the card the count is text like "Joined …" beside it; only the icon takes the colour.
+  &--card {
+    color: inherit;
+
+    .icon {
+      color: var(--curio-collector, inherit);
+    }
+  }
+}
